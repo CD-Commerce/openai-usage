@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>OpenAI Costs Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body {
+      font-family: sans-serif;
+      margin: 2rem;
+    }
+    #controls {
+      display: flex;
+      gap: 1rem;
+      margin-bottom: 1rem;
+    }
+    canvas {
+      max-width: 800px;
+      max-height: 400px;
+    }
+  </style>
+</head>
+<body>
+  <h2>OpenAI Cost Overview (Last 30 Days)</h2>
+  <div id="controls">
+    <label>Project:
+      <select id="projectSelect"></select>
+    </label>
+    <label>Line Item:
+      <select id="lineItemSelect"></select>
+    </label>
+  </div>
+  <canvas id="costChart"></canvas>
+  <div id="totalDisplay" style="text-align:left;font-weight:bold;margin-top:8px;"></div>
+
+  <script type="module">
+    const project_map = {
+        "proj_Y7vPlBXiEsm81ee4N8GB8ZfR": "alibaba-supplier-sourcing",
+        "proj_GKqy5PqiVUckBOuL4dGCX2jP":"product-research-platform" 
+    }
+    const API_KEY = prompt("OpenAI Usage API Key:");
+    const projectSelect = document.getElementById('projectSelect');
+    const lineItemSelect = document.getElementById('lineItemSelect');
+    const drawctx = document.getElementById('costChart').getContext('2d');
+    let chart;
+
+    // fetch costs
+    let start = Math.round(new Date().getTime() / 1000) - 86400*29;
+    const resp = await fetch(`https://api.openai.com/v1/organization/costs?start_time=${start}&group_by=project_id&group_by=line_item&limit=180`, {
+        headers: { Authorization: `Bearer ${API_KEY}`}
+    });
+    if (!resp.ok) {
+    const text = await resp.text();
+        throw new Error(`Error ${resp.status}: ${text}`);
+    }
+    const data = (await resp.json()).data;
+    if (data.length != 30) {
+        throw new Error("length has to be 30");
+    }
+    console.log(data);
+
+    // calculate day labels
+    let day_labels = [];
+    for (let i = 0; i < 30; i++) {
+        let next_time = start + i*86400;
+        const d = new Date(next_time*1000);
+        const day = d.toLocaleString('en-GB', { timeZone: 'GMT', day: '2-digit' });
+        const month = d.toLocaleString('en-GB', { timeZone: 'GMT', month: 'short' });
+        const shortDate = `${day}. ${month}`; 
+        //console.log(shortDate); // → "14. Nov"
+        day_labels.push(shortDate);
+    }
+
+    // extract project ids
+    let project_ids = new Set();
+    for (const row of data) {
+        for (const result of row.results) {
+            project_ids.add(result.project_id);
+        } 
+    }
+    console.log(project_ids)
+
+    // extract line items
+    let line_items = new Set();
+    for (const row of data) {
+        for (const result of row.results) {
+            line_items.add(result.line_item);
+        }
+    }
+    console.log(line_items);
+
+    // add project ids/line_items to select fields
+    projectSelect.add(new Option("all", "all"));
+    lineItemSelect.add(new Option("all", "all"));
+    for (const project_id of project_ids) {
+        projectSelect.add(new Option(project_map[project_id] ?? project_id, project_id));
+    }
+    for (const line_item of line_items) {
+        lineItemSelect.add(new Option(line_item, line_item));
+    }
+
+    function filterData(project, lineItem) {
+        return data.map((bucket) => 
+            bucket.results
+                .filter((value) => (project === "all" || value.project_id === project) && (lineItem === "all" || value.line_item === lineItem))
+                .reduce((prev, cur) => prev + cur.amount.value, 0)
+        );
+    }
+
+    function renderChart(project, lineItem) {
+      let chartData = filterData(project, lineItem);
+      let total = chartData.reduce((prev, cur) => prev + cur, 0);
+      if (chart) chart.destroy();
+      chart = new Chart(drawctx, {
+        type: 'bar',
+        data: {
+          labels: day_labels,
+          datasets: [{
+            label: 'Cost (USD)',
+            data: chartData,
+            backgroundColor: 'rgba(54, 162, 235, 0.6)',
+          }]
+        },
+        options: {
+          scales: { y: { beginAtZero: true } },
+          plugins: { legend: { display: true } }
+        }
+      });
+      document.getElementById('totalDisplay').textContent = `Total: ${total.toFixed(2)}$`;
+    }
+    
+    let currentProject = "all";
+    let currentLineItem = "all";
+    renderChart(currentProject, currentLineItem);
+
+    projectSelect.addEventListener('change', (e) => {
+        currentProject = e.target.value;
+        renderChart(currentProject, currentLineItem);
+    });
+
+    lineItemSelect.addEventListener('change', (e) => {
+        currentLineItem = e.target.value;
+        renderChart(currentProject, currentLineItem);
+    });
+  </script>
+</body>
+</html>
