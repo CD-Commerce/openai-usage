@@ -104,7 +104,7 @@
         return data.map((bucket) => 
             bucket.results
                 .filter((value) => (project === "all" || value.project_id === project) && (lineItem === "all" || value.line_item === lineItem))
-                .reduce((prev, cur) => prev + cur.amount.value, 0)
+                .reduce((prev, cur) => prev + Number(cur.amount.value), 0)
         );
     }
 
